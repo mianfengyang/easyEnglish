@@ -1,0 +1,104 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:easyEnglish}",
+            "name": "Debug EasyEnglish",
+            "target": "EasyEnglish",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug EasyEnglish"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:easyEnglish}",
+            "name": "Release EasyEnglish",
+            "target": "EasyEnglish",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release EasyEnglish"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:easyEnglish}",
+            "name": "Debug test_db",
+            "target": "test_db",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug test_db"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:easyEnglish}",
+            "name": "Release test_db",
+            "target": "test_db",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release test_db"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:easyEnglish}",
+            "name": "Debug import_database",
+            "target": "import_database",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug import_database"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:easyEnglish}",
+            "name": "Release import_database",
+            "target": "import_database",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release import_database"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:easyEnglish}",
+            "name": "Debug EasyEnglish.app",
+            "target": "EasyEnglish.app",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug EasyEnglish.app"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:easyEnglish}",
+            "name": "Release EasyEnglish.app",
+            "target": "EasyEnglish.app",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release EasyEnglish.app"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:easyEnglish}",
+            "name": "Debug update_roots",
+            "target": "update_roots",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug update_roots"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:easyEnglish}",
+            "name": "Release update_roots",
+            "target": "update_roots",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release update_roots"
+        }
+    ]
+}
