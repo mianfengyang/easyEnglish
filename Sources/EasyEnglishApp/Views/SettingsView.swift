@@ -1,4 +1,5 @@
 import SwiftUI
+import Foundation
 
 struct SettingsView: View {
     @StateObject private var settings = SettingsStore.shared
@@ -76,6 +77,22 @@ struct SettingsView: View {
                     Stepper(value: $settings.dailyNewLimit, in: 1...200) { 
                         Text("每天新词：\(settings.dailyNewLimit)") 
                     }
+                }
+                
+                Section(header: Text("外观")) {
+                    Picker("主题模式", selection: $settings.themeMode) {
+                        ForEach(ThemeMode.allCases) { theme in
+                            Text(theme.rawValue).tag(theme)
+                        }
+                    }
+                    .pickerStyle(SegmentedPickerStyle())
+                    
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("当前主题：\(settings.themeMode.rawValue)")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.top, 4)
                 }
             }
 

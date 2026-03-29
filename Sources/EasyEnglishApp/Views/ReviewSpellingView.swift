@@ -63,8 +63,8 @@ struct ReviewSpellingView: View {
         .background(
             LinearGradient(
                 gradient: Gradient(colors: [
-                    Color(red: 1.0, green: 0.98, blue: 0.95),
-                    Color(red: 1.0, green: 0.99, blue: 0.97)
+                    Color(NSColor.windowBackgroundColor).opacity(0.9),
+                    Color(NSColor.windowBackgroundColor)
                 ]),
                 startPoint: .top,
                 endPoint: .bottom
@@ -110,11 +110,11 @@ struct ReviewSpellingView: View {
                 VStack(spacing: 8) {
                     Text("释义")
                         .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(Color(red: 0.8, green: 0.4, blue: 0.1))
+                        .foregroundColor(.primary)
                     Text(meanings)
                         .font(.system(size: 24, weight: .semibold))
                         .multilineTextAlignment(.center)
-                        .foregroundColor(Color(red: 0.3, green: 0.3, blue: 0.3))
+                        .foregroundColor(.primary)
                         .padding()
                         .background(
                             RoundedRectangle(cornerRadius: 12)
@@ -131,7 +131,7 @@ struct ReviewSpellingView: View {
             if let ipa = word.ipa {
                 Text(ipa)
                     .font(.system(size: 18, weight: .regular))
-                    .foregroundColor(Color(red: 0.6, green: 0.6, blue: 0.6))
+                    .foregroundColor(.secondary)
             }
             
             Button(action: { TTSManager.shared.speak(word.text) }) {
@@ -146,7 +146,7 @@ struct ReviewSpellingView: View {
                 .padding(.vertical, 8)
                 .background(
                     RoundedRectangle(cornerRadius: 8)
-                        .fill(Color(red: 1.0, green: 0.95, blue: 0.9).opacity(0.6))
+                        .fill(Color(NSColor.controlBackgroundColor).opacity(0.6))
                 )
             }
             .buttonStyle(PlainButtonStyle())
@@ -214,7 +214,7 @@ struct ReviewSpellingView: View {
             
             Text("\(currentWordIndex + 1)/\(learnedWords.count)")
                 .font(.system(size: 16, weight: .semibold))
-                .foregroundColor(Color(red: 0.8, green: 0.4, blue: 0.1))
+                .foregroundColor(.primary)
                 .padding(.horizontal, 20)
                 .padding(.vertical, 10)
                 .background(

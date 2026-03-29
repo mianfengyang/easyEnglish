@@ -76,13 +76,13 @@ struct WordRootsDetailView: View {
         VStack(alignment: .center, spacing: 16) {
             Text(word.text)
                 .font(.system(size: 60, weight: .bold))
-                .foregroundColor(Color(red: 0.95, green: 0.5, blue: 0.1))
+                .foregroundColor(.primary)
                 .textSelection(.enabled)
             
             HStack(alignment: .center, spacing: 20) {
                 if let ipa = word.ipa {
                     Text(ipa)
-                        .foregroundColor(Color(red: 0.6, green: 0.6, blue: 0.6))
+                        .foregroundColor(.secondary)
                         .font(.system(size: 20))
                 }
                 
@@ -98,7 +98,7 @@ struct WordRootsDetailView: View {
                     .padding(.vertical, 10)
                     .background(
                         RoundedRectangle(cornerRadius: 10)
-                            .fill(Color(red: 1.0, green: 0.95, blue: 0.9).opacity(0.8))
+                            .fill(Color(NSColor.controlBackgroundColor).opacity(0.8))
                     )
                     .shadow(color: Color.black.opacity(0.05), radius: 4, x: 0, y: 2)
                 }
@@ -121,7 +121,7 @@ struct WordRootsDetailView: View {
                     
                     Text("词根 / 助记")
                         .font(.system(size: 22, weight: .semibold))
-                        .foregroundColor(Color(red: 0.95, green: 0.5, blue: 0.1))
+                        .foregroundColor(.primary)
                 }
                 .frame(maxWidth: 800, alignment: .leading)
             }
@@ -129,7 +129,7 @@ struct WordRootsDetailView: View {
             // 词根内容卡片（使用自定义卡片样式）
             VStack(alignment: .center, spacing: 0) {
                 RoundedRectangle(cornerRadius: 16)
-                    .fill(Color.white.opacity(0.8))
+                    .fill(Color(NSColor.controlBackgroundColor).opacity(0.8))
                     .shadow(color: Color.black.opacity(0.1), radius: 8, x: 0, y: 4)
                     .overlay {
                         if let roots = word.roots, !roots.isEmpty {

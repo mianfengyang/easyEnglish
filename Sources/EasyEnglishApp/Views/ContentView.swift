@@ -149,7 +149,7 @@ struct ContentView: View {
                     .foregroundColor(Color(red: 1.0, green: 0.6, blue: 0.2))
                 Text("EasyEnglish")
                     .font(.system(size: 20, weight: .bold))
-                    .foregroundColor(Color(red: 0.95, green: 0.5, blue: 0.1))
+                    .foregroundColor(.primary)
             }
 
             Spacer()
@@ -195,7 +195,7 @@ struct ContentView: View {
                         .font(.system(size: 18))
                         .foregroundColor(Color(red: 1.0, green: 0.7, blue: 0.3))
                         .padding(8)
-                        .background(Color(red: 1.0, green: 0.95, blue: 0.9).opacity(0.6))
+                        .background(Color(NSColor.controlBackgroundColor).opacity(0.6))
                         .cornerRadius(8)
                 }
                 .buttonStyle(PlainButtonStyle())
@@ -206,8 +206,8 @@ struct ContentView: View {
         .background(
             LinearGradient(
                 gradient: Gradient(colors: [
-                    Color(red: 1.0, green: 0.98, blue: 0.96),
-                    Color(red: 1.0, green: 0.99, blue: 0.98)
+                    Color(NSColor.windowBackgroundColor).opacity(0.9),
+                    Color(NSColor.windowBackgroundColor)
                 ]),
                 startPoint: .top,
                 endPoint: .bottom
@@ -310,8 +310,8 @@ struct ContentView: View {
         .background(
             LinearGradient(
                 gradient: Gradient(colors: [
-                    Color(red: 1.0, green: 0.98, blue: 0.95), // 淡橙渐变顶部
-                    Color(red: 1.0, green: 0.99, blue: 0.97)  // 淡橙渐变底部
+                    Color(NSColor.windowBackgroundColor).opacity(0.9),
+                    Color(NSColor.windowBackgroundColor)
                 ]),
                 startPoint: .top,
                 endPoint: .bottom
@@ -437,7 +437,7 @@ struct ContentView: View {
             
             Text("\(sessionManager.sessionIndex + 1)/\(max(1, sessionManager.sessionWords.count))")
                 .font(.system(size: 16, weight: .semibold))
-                .foregroundColor(Color(red: 0.8, green: 0.4, blue: 0.1))
+                .foregroundColor(.primary)
                 .padding(.horizontal, 20)
                 .padding(.vertical, 10)
                 .background(
