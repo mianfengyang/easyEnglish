@@ -21,6 +21,9 @@ struct ReviewSpellingView: View {
     // ✅ 添加回调闭包，用于通知父视图显示统计
     var onShowStatistics: (() -> Void)?
     
+    // ✅ 听写模式标志
+    let isDictationMode: Bool
+    
     // MARK: - State Properties
     @State private var currentWordIndex: Int = 0  // 当前单词在 learnedWords 中的索引
     @State private var currentLetterIndex: Int = 0  // 当前正在拼写的字母索引
@@ -76,6 +79,12 @@ struct ReviewSpellingView: View {
                 initializeCurrentWord()
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("DictationModeStarted"))) { _ in
+            // 监听听写模式开始的通知，确保输入焦点
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                isInputFocused = true
+            }
+        }
         .onTapGesture {
             // 点击界面时重新获取输入焦点
             isInputFocused = true
@@ -112,7 +121,7 @@ struct ReviewSpellingView: View {
                         .font(.system(size: 14, weight: .medium))
                         .foregroundColor(.primary)
                     Text(meanings)
-                        .font(.system(size: 24, weight: .semibold))
+                        .font(.system(size: 16, weight: .semibold))
                         .multilineTextAlignment(.center)
                         .foregroundColor(.primary)
                         .padding()
@@ -166,6 +175,18 @@ struct ReviewSpellingView: View {
                         .font(.system(size: 80, weight: .bold))
                         .foregroundColor(letterColor(for: letterStatus, isCurrentPosition: isCurrentPosition))
                         .fixedSize()
+                        .overlay(
+                            Group {
+                                if isDictationMode && letterStatus == .pending {
+                                    Rectangle()
+                                        .fill(Color.primary.opacity(0.5))
+                                        .frame(height: 3)
+                                        .offset(y: 40)
+                                } else {
+                                    EmptyView()
+                                }
+                            }
+                        )
                 }
             }
             .frame(maxWidth: .infinity, alignment: .center)
@@ -179,7 +200,8 @@ struct ReviewSpellingView: View {
         case .incorrect:
             return .red
         case .pending:
-            return isCurrentPosition ? .gray.opacity(0.4) : .gray.opacity(0.2)
+            // 听写模式下，未输入的字母与背景色一致，实现不可见效果
+            return isDictationMode ? Color(NSColor.windowBackgroundColor) : (isCurrentPosition ? .gray.opacity(0.4) : .gray.opacity(0.2))
         }
     }
     
@@ -262,7 +284,8 @@ struct ReviewSpellingView: View {
     private var hiddenInputField: some View {
         TextField("", text: $userInput)
             .opacity(0.01)
-            .frame(width: 1, height: 1)
+            .frame(width: 100, height: 100)
+            .position(x: 0, y: 0) // 保持在屏幕内但透明
             .textFieldStyle(PlainTextFieldStyle())
             .focused($isInputFocused)
             .textContentType(.oneTimeCode)
@@ -428,7 +451,7 @@ struct ReviewSpellingView_Previews: PreviewProvider {
             WordData(id: UUID(), text: "learning", ipa: "/ˈlɜːrnɪŋ/", meanings: "n.学习；知识", examples: nil, chineseExamples: nil, roots: nil),
             WordData(id: UUID(), text: "practice", ipa: "/ˈpræktɪs/", meanings: "n.练习；实践", examples: nil, chineseExamples: nil, roots: nil)
         ]
-        return ReviewSpellingView(learnedWords: mockWords)
+        return ReviewSpellingView(learnedWords: mockWords, isDictationMode: false)
             .environmentObject(LearningSessionManager.shared)
             .frame(width: 700, height: 600)
     }

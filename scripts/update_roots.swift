@@ -1,19 +1,24 @@
 import Foundation
-import SQLite
+import SQLite3
 
 /// 词根信息更新工具 - 从网络抓取词根信息并更新数据库
-@main
 struct RootsUpdater {
+    // 定义 SQLite 常量
+    static let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
     
     // 缓存机制
     static var rootsCache: [String: String] = [:]
     
-    static func main() throws {
+    static func main() {
         print("🚀 EasyEnglish 词根信息更新工具")
         print("===============================")
         
         // 1. 确定路径
-        let basePath = FileManager.default.currentDirectoryPath
+        var basePath = FileManager.default.currentDirectoryPath
+        // 如果当前在 scripts 目录下，切换到项目根目录
+        if basePath.hasSuffix("scripts") {
+            basePath = String(basePath.dropLast(7)) // 移除 "/scripts"
+        }
         let wordlistsDir = URL(fileURLWithPath: basePath).appendingPathComponent("Data/wordlists")
         let dbPath = wordlistsDir.appendingPathComponent("wordlist.sqlite").path
         let cachePath = wordlistsDir.appendingPathComponent("roots_cache.json").path
@@ -47,84 +52,137 @@ struct RootsUpdater {
         
         // 3. 连接数据库
         print("🗄️  连接数据库...")
-        let db = try Connection(dbPath)
+        var db: OpaquePointer?
+        if sqlite3_open(dbPath, &db) != SQLITE_OK {
+            print("❌ 数据库连接失败")
+            exit(1)
+        }
+        defer { sqlite3_close(db) }
         print("✅ 数据库连接成功\n")
         
-        // 4. 定义表结构
-        let words = Table("words")
-        let id = Expression<UUID>("id")
-        let text = Expression<String>("text")
-        let roots = Expression<String?>("roots")
-        
-        // 5. 获取所有单词
+        // 4. 获取所有单词
         print("📊 获取单词列表...")
-        var wordsToUpdate: [(UUID, String, String?)] = []
+        var wordsToUpdate: [(String, String, String?)] = []
         
-        for result in try db.prepare(words.select(id, text, roots)) {
-            let wordId = result[id]
-            let wordText = result[text]
-            let currentRoots = result[roots]
-            
-            wordsToUpdate.append((wordId, wordText, currentRoots))
+        var stmt: OpaquePointer?
+        let query = "SELECT id, text, roots FROM words"
+        if sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK {
+            while sqlite3_step(stmt) == SQLITE_ROW {
+                let id = String(cString: sqlite3_column_text(stmt, 0))
+                let text = String(cString: sqlite3_column_text(stmt, 1))
+                var roots: String? = nil
+                if let rootsData = sqlite3_column_text(stmt, 2) {
+                    roots = String(cString: rootsData)
+                }
+                wordsToUpdate.append((id, text, roots))
+            }
         }
+        sqlite3_finalize(stmt)
         
         print("✅ 找到 \(wordsToUpdate.count) 个单词\n")
         
-        // 6. 批量更新词根信息
+        // 5. 批量更新词根信息（多线程）
         print("📝 更新词根信息...")
         var updated = 0
         var failed = 0
         
-        for (index, (wordId, wordText, currentRoots)) in wordsToUpdate.enumerated() {
-            print("   处理单词：\(wordText) (\(index + 1)/\(wordsToUpdate.count))")
+        // 限制并发数，避免被网站封禁
+        let maxConcurrent = 5
+        let semaphore = DispatchSemaphore(value: maxConcurrent)
+        let group = DispatchGroup()
+        let queue = DispatchQueue(label: "com.easyenglish.rootsupdater", qos: .userInitiated, attributes: .concurrent)
+        
+        // 线程安全的计数器和缓存更新
+        let counterQueue = DispatchQueue(label: "com.easyenglish.counter")
+        
+        for (index, (wordId, wordText, _)) in wordsToUpdate.enumerated() {
+            semaphore.wait()
             
-            // 检查缓存
-            if let cachedRoots = rootsCache[wordText.lowercased()] {
-                print("   📥 从缓存获取词根信息")
-                let update = words.filter(id == wordId).update(roots <- cachedRoots)
-                try db.run(update)
-                updated += 1
-                print("   ✅ 已更新：\(wordText)")
-                continue
-            }
-            
-            do {
-                // 从网络获取词根信息
-                if let rootInfo = try fetchRootInfo(for: wordText) {
-                    // 更新缓存
-                    rootsCache[wordText.lowercased()] = rootInfo
-                    // 更新数据库
-                    let update = words.filter(id == wordId).update(roots <- rootInfo)
-                    try db.run(update)
-                    updated += 1
-                    print("   ✅ 已更新：\(wordText)")
-                } else {
-                    failed += 1
-                    print("   ⚠️  未找到词根信息：\(wordText)")
+            queue.async(group: group) {
+                defer {
+                    semaphore.signal()
                 }
                 
-                // 避免请求过快被封禁
-                Thread.sleep(forTimeInterval: 1.0)
+                print("   处理单词：\(wordText) (\(index + 1)/\(wordsToUpdate.count))")
                 
-            } catch {
-                failed += 1
-                print("   ❌ 更新失败：\(wordText) - \(error.localizedDescription)")
+                // 检查缓存
+                if let cachedRoots = counterQueue.sync(execute: { rootsCache[wordText.lowercased()] }) {
+                    print("   📥 从缓存获取词根信息")
+                    counterQueue.sync {
+                        var updateStmt: OpaquePointer?
+                        let updateQuery = "UPDATE words SET roots = ? WHERE id = ?"
+                        if sqlite3_prepare_v2(db, updateQuery, -1, &updateStmt, nil) == SQLITE_OK {
+                            sqlite3_bind_text(updateStmt, 1, cachedRoots, -1, RootsUpdater.SQLITE_TRANSIENT)
+                            sqlite3_bind_text(updateStmt, 2, wordId, -1, RootsUpdater.SQLITE_TRANSIENT)
+                            if sqlite3_step(updateStmt) == SQLITE_DONE {
+                                updated += 1
+                                print("   ✅ 已更新：\(wordText)")
+                            } else {
+                                failed += 1
+                                print("   ❌ 更新失败：\(wordText)")
+                            }
+                        }
+                        sqlite3_finalize(updateStmt)
+                    }
+                    return
+                }
+                
+                do {
+                    // 从网络获取词根信息
+                    if let rootInfo = try fetchRootInfo(for: wordText) {
+                        // 更新缓存和数据库
+                        counterQueue.sync {
+                            rootsCache[wordText.lowercased()] = rootInfo
+                            var updateStmt: OpaquePointer?
+                            let updateQuery = "UPDATE words SET roots = ? WHERE id = ?"
+                            if sqlite3_prepare_v2(db, updateQuery, -1, &updateStmt, nil) == SQLITE_OK {
+                                sqlite3_bind_text(updateStmt, 1, rootInfo, -1, RootsUpdater.SQLITE_TRANSIENT)
+                            sqlite3_bind_text(updateStmt, 2, wordId, -1, RootsUpdater.SQLITE_TRANSIENT)
+                                if sqlite3_step(updateStmt) == SQLITE_DONE {
+                                    updated += 1
+                                    print("   ✅ 已更新：\(wordText)")
+                                } else {
+                                    failed += 1
+                                    print("   ❌ 更新失败：\(wordText)")
+                                }
+                            }
+                            sqlite3_finalize(updateStmt)
+                        }
+                    } else {
+                        counterQueue.sync { failed += 1 }
+                        print("   ⚠️  未找到词根信息：\(wordText)")
+                    }
+                    
+                    // 避免请求过快被封禁
+                    Thread.sleep(forTimeInterval: 0.2)
+                    
+                } catch {
+                    counterQueue.sync { failed += 1 }
+                    print("   ❌ 更新失败：\(wordText) - \(error.localizedDescription)")
+                }
             }
         }
+        
+        // 等待所有任务完成
+        group.wait()
         
         print("\n✅ 词根信息更新完成")
         print("   成功：\(updated) 个单词")
         print("   失败：\(failed) 个单词")
         print("   跳过：\(wordsToUpdate.count - updated - failed) 个单词（已有词根信息）\n")
         
-        // 7. 显示示例数据
+        // 6. 显示示例数据
         print("📚 更新后的词根信息示例:")
-        let query = words.filter(roots != nil).order(text).limit(5)
-        for result in try db.prepare(query) {
-            let word = result[text]
-            let rootInfo = result[roots] ?? "N/A"
-            print("   • \(word): \(rootInfo)")
+        var exampleStmt: OpaquePointer?
+        let exampleQuery = "SELECT text, roots FROM words WHERE roots IS NOT NULL ORDER BY text LIMIT 5"
+        if sqlite3_prepare_v2(db, exampleQuery, -1, &exampleStmt, nil) == SQLITE_OK {
+            while sqlite3_step(exampleStmt) == SQLITE_ROW {
+                let word = String(cString: sqlite3_column_text(exampleStmt, 0))
+                let rootInfo = String(cString: sqlite3_column_text(exampleStmt, 1))
+                print("   • \(word): \(rootInfo)")
+            }
         }
+        sqlite3_finalize(exampleStmt)
         
         // 保存缓存
         let cacheURL = wordlistsDir.appendingPathComponent("roots_cache.json")
@@ -142,31 +200,282 @@ struct RootsUpdater {
         print("🎉 词根信息更新工具完成！")
         print("===============================")
     }
-    
-    /// 从网络获取词根信息
+    // 从网络获取词根信息
     static func fetchRootInfo(for word: String) throws -> String? {
-        // 尝试多个API源获取词根信息
-        let apiSources: [(name: String, fetch: (String) throws -> String?)] = [
-            ("Dictionary API", fetchFromDictionaryAPI),
-            ("EtymOnline API", fetchFromEtymOnlineAPI),
-            ("Oxford API", fetchFromOxfordAPI)
-        ]
+        // 尝试从 quword.com 获取词根信息
+        print("   尝试从 quword.com 获取...")
+        if let rootInfo = try fetchFromQuWord(word) {
+            return rootInfo
+        }
         
-        for (apiName, fetchFunc) in apiSources {
-            print("   尝试从 \(apiName) 获取...")
-            do {
-                if let rootInfo = try fetchFunc(word) {
-                    return rootInfo
+        // 如果 quword.com 失败，尝试基于单词结构分析
+        return try fetchFromWordAnalysis(word)
+    }
+    
+    /// 从 quword.com 获取词根信息
+    static func fetchFromQuWord(_ word: String) throws -> String? {
+        let encodedWord = word.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? word
+        let urlString = "https://www.quword.com/w/\(encodedWord)"
+        
+        guard let url = URL(string: urlString) else {
+            throw NSError(domain: "RootsUpdater", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid URL"])
+        }
+        
+        let semaphore = DispatchSemaphore(value: 0)
+        var rootInfo: String? = nil
+        var error: Error? = nil
+        
+        let task = URLSession.shared.dataTask(with: url) { data, response, _ in
+            defer { semaphore.signal() }
+            
+            guard let data = data, let html = String(data: data, encoding: .utf8) else {
+                error = NSError(domain: "RootsUpdater", code: -2, userInfo: [NSLocalizedDescriptionKey: "No data received"])
+                return
+            }
+            
+            // 解析 HTML 获取词根信息
+            rootInfo = parseQuWordHTML(html)
+        }
+        
+        task.resume()
+        semaphore.wait()
+        
+        if let error = error {
+            throw error
+        }
+        
+        return rootInfo
+    }
+    
+    /// 解析 quword.com 的 HTML 内容 - 只抓取助记提示和中文词源
+    static func parseQuWordHTML(_ html: String) -> String? {
+        var rootInfo = ""
+        
+        // 1. 抓取"助记提示"部分
+        if let mnemonicRange = html.range(of: "助记提示") {
+            let startIndex = mnemonicRange.upperBound
+            // 找到助记提示内容的结束位置（下一个<h3>标签或<div class="section">或<div class="related">）
+            let remainingHtml = String(html[startIndex...])
+            
+            // 提取助记提示的内容
+            if let contentEndRange = remainingHtml.range(of: "<h3") ?? remainingHtml.range(of: "<div class=\"section\"") ?? remainingHtml.range(of: "<div class=\"related\"") {
+                let content = String(remainingHtml[..<contentEndRange.lowerBound])
+                // 提取纯文本
+                var cleanText = content.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+                // 清理特殊字符
+                cleanText = cleanText.replacingOccurrences(of: "&nbsp;", with: " ")
+                cleanText = cleanText.replacingOccurrences(of: "&quot;", with: "\"")
+                cleanText = cleanText.replacingOccurrences(of: "&amp;", with: "&")
+                cleanText = cleanText.replacingOccurrences(of: "&lt;", with: "<")
+                cleanText = cleanText.replacingOccurrences(of: "&gt;", with: ">")
+                
+                // 过滤掉无关内容
+                cleanText = filterIrrelevantContent(cleanText)
+                
+                let trimmed = cleanText.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty && !isIrrelevantContent(trimmed) && !containsExcessiveWhitespace(trimmed) && !isLowQualityContent(trimmed) {
+                    rootInfo += "【助记提示】\n" + trimmed + "\n\n"
                 }
-            } catch {
-                print("   ⚠️ \(apiName) 失败：\(error.localizedDescription)")
-                // 继续尝试下一个API
-                continue
             }
         }
         
-        // 如果所有API都失败，尝试基于单词结构分析
-        return try fetchFromWordAnalysis(word)
+        // 2. 抓取"中文词源"部分
+        if let etymologyRange = html.range(of: "中文词源") {
+            let startIndex = etymologyRange.upperBound
+            let remainingHtml = String(html[startIndex...])
+            
+            // 提取中文词源的内容
+            if let contentEndRange = remainingHtml.range(of: "<h3") ?? remainingHtml.range(of: "<div class=\"section\"") ?? remainingHtml.range(of: "<div class=\"related\"") {
+                let content = String(remainingHtml[..<contentEndRange.lowerBound])
+                // 提取纯文本
+                var cleanText = content.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+                // 清理特殊字符
+                cleanText = cleanText.replacingOccurrences(of: "&nbsp;", with: " ")
+                cleanText = cleanText.replacingOccurrences(of: "&quot;", with: "\"")
+                cleanText = cleanText.replacingOccurrences(of: "&amp;", with: "&")
+                cleanText = cleanText.replacingOccurrences(of: "&lt;", with: "<")
+                cleanText = cleanText.replacingOccurrences(of: "&gt;", with: ">")
+                
+                // 过滤掉无关内容
+                cleanText = filterIrrelevantContent(cleanText)
+                
+                let trimmed = cleanText.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty && !isIrrelevantContent(trimmed) && !containsExcessiveWhitespace(trimmed) && !isLowQualityContent(trimmed) {
+                    rootInfo += "【中文词源】\n" + trimmed + "\n\n"
+                }
+            }
+        }
+        
+        // 3. 如果没有找到助记提示和中文词源，尝试抓取词源信息
+        if rootInfo.isEmpty {
+            // 查找包含"词源"的部分
+            if let etymologyRange = html.range(of: "词源") {
+                let startIndex = etymologyRange.upperBound
+                let remainingHtml = String(html[startIndex...])
+                
+                if let contentEndRange = remainingHtml.range(of: "<h3") ?? remainingHtml.range(of: "<div class=\"section\"") ?? remainingHtml.range(of: "<div class=\"related\"") {
+                    let content = String(remainingHtml[..<contentEndRange.lowerBound])
+                    var cleanText = content.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+                    // 清理特殊字符
+                    cleanText = cleanText.replacingOccurrences(of: "&nbsp;", with: " ")
+                    cleanText = cleanText.replacingOccurrences(of: "&quot;", with: "\"")
+                    cleanText = cleanText.replacingOccurrences(of: "&amp;", with: "&")
+                    cleanText = cleanText.replacingOccurrences(of: "&lt;", with: "<")
+                    cleanText = cleanText.replacingOccurrences(of: "&gt;", with: ">")
+                    
+                    // 过滤掉无关内容
+                    cleanText = filterIrrelevantContent(cleanText)
+                    
+                    let trimmed = cleanText.trimmingCharacters(in: .whitespacesAndNewlines)
+                    // 更严格的过滤条件，确保内容是真正的词源信息
+                    if !trimmed.isEmpty && trimmed.count > 100 && !isIrrelevantContent(trimmed) && !containsExcessiveWhitespace(trimmed) && !isLowQualityContent(trimmed) && containsMeaningfulContent(trimmed) {
+                        rootInfo += "【词源】\n" + trimmed + "\n\n"
+                    }
+                }
+            }
+        }
+        
+        let finalResult = rootInfo.trimmingCharacters(in: .whitespacesAndNewlines)
+        return finalResult.isEmpty ? nil : finalResult
+    }
+    
+    /// 过滤掉无关内容
+    static func filterIrrelevantContent(_ text: String) -> String {
+        var filtered = text
+        
+        // 过滤掉常见的无关内容
+        let irrelevantKeywords = [
+            "词源字典", "词根词缀", "英文词源", "双语词典", "英语词典", "在线翻译",
+            "图片搜索", "网页搜索", "影视搜索", "词汇量测试", "看图背单词",
+            "单词拼写练习", "公众号", "小程序", "百度", "谷歌", "必应",
+            "有道", "爱词霸", "海词", "搜狗", "好搜", "神马", "头条",
+            "英文名", "英语新闻", "英语点津", "双语词典", "有道词典", "海词词典",
+            "必应词典", "英文词典", "英语词源", "词根字典", "百度图片", "好搜图片",
+            "搜狗图片", "必应图片", "爱奇艺搜索", "腾讯视频"
+        ]
+        
+        for keyword in irrelevantKeywords {
+            filtered = filtered.replacingOccurrences(of: keyword, with: "")
+        }
+        
+        // 清理多余的空行和空格
+        filtered = filtered.replacingOccurrences(of: "\n{3,}", with: "\n\n", options: .regularExpression)
+        filtered = filtered.replacingOccurrences(of: " {3,}", with: " ", options: .regularExpression)
+        
+        return filtered
+    }
+    
+    /// 检查内容是否包含无关信息
+    static func isIrrelevantContent(_ text: String) -> Bool {
+        let irrelevantKeywords = [
+            "词源字典", "词根词缀", "英文词源", "双语词典", "英语词典", "在线翻译",
+            "图片搜索", "网页搜索", "影视搜索", "词汇量测试", "看图背单词",
+            "单词拼写练习", "公众号", "小程序", "百度", "谷歌", "必应",
+            "有道", "爱词霸", "海词", "搜狗", "好搜", "神马", "头条",
+            "英文名", "英语新闻", "英语点津", "双语词典", "有道词典", "海词词典",
+            "必应词典", "英文词典", "英语词源", "词根字典", "百度图片", "好搜图片",
+            "搜狗图片", "必应图片", "爱奇艺搜索", "腾讯视频"
+        ]
+        
+        for keyword in irrelevantKeywords {
+            if text.contains(keyword) {
+                return true
+            }
+        }
+        
+        return false
+    }
+    
+    /// 检查内容是否包含过多的空白字符
+    static func containsExcessiveWhitespace(_ text: String) -> Bool {
+        // 计算非空白字符的比例
+        let nonWhitespaceCount = text.filter { !$0.isWhitespace }.count
+        let totalCount = text.count
+        
+        // 如果非空白字符比例低于 20%，则认为包含过多空白
+        if totalCount > 0 && Double(nonWhitespaceCount) / Double(totalCount) < 0.2 {
+            return true
+        }
+        
+        // 检查是否有连续的多个空行
+        let lineCount = text.components(separatedBy: .newlines).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }.count
+        let totalLines = text.components(separatedBy: .newlines).count
+        
+        // 如果有效行数比例低于 30%，则认为包含过多空白
+        if totalLines > 0 && Double(lineCount) / Double(totalLines) < 0.3 {
+            return true
+        }
+        
+        return false
+    }
+    
+    /// 检查内容是否为低质量内容
+    static func isLowQualityContent(_ text: String) -> Bool {
+        // 检查是否包含常见的无关关键词
+        let lowQualityKeywords = [
+            "词源字典", "词根词缀", "英文词源", "双语词典", "英语词典", "在线翻译",
+            "图片搜索", "网页搜索", "影视搜索", "词汇量测试", "看图背单词",
+            "单词拼写练习", "公众号", "小程序", "百度", "谷歌", "必应",
+            "有道", "爱词霸", "海词", "搜狗", "好搜", "神马", "头条",
+            "英文名", "英语新闻", "英语点津", "双语词典", "有道词典", "海词词典",
+            "必应词典", "英文词典", "英语词源", "词根字典", "百度图片", "好搜图片",
+            "搜狗图片", "必应图片", "爱奇艺搜索", "腾讯视频"
+        ]
+        
+        for keyword in lowQualityKeywords {
+            if text.contains(keyword) {
+                return true
+            }
+        }
+        
+        // 检查内容是否主要由重复的关键词组成
+        let words = text.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
+        if words.count > 0 {
+            let uniqueWords = Set(words)
+            if Double(uniqueWords.count) / Double(words.count) < 0.5 {
+                return true
+            }
+        }
+        
+        // 检查内容长度是否过短
+        if text.count < 10 {
+            return true
+        }
+        
+        return false
+    }
+    
+    /// 检查内容是否包含有意义的词源信息
+    static func containsMeaningfulContent(_ text: String) -> Bool {
+        // 检查是否包含常见的词源相关词汇
+        let meaningfulKeywords = [
+            "来自", "源自", "源于", "词根", "词缀", "前缀", "后缀",
+            "拉丁语", "希腊语", "古英语", "法语", "德语", "意大利语",
+            "意思", "含义", "意义", "解释", "起源", "来源", "历史",
+            "神话", "传说", "故事", "人物", "地名", "事件"
+        ]
+        
+        for keyword in meaningfulKeywords {
+            if text.contains(keyword) {
+                return true
+            }
+        }
+        
+        // 检查是否包含标点符号，通常有意义的内容会包含标点
+        let punctuationMarks = ["，", "。", "！", "？", ",", ".", "!", "?"]
+        for mark in punctuationMarks {
+            if text.contains(mark) {
+                return true
+            }
+        }
+        
+        // 检查内容是否包含完整的句子结构
+        let sentences = text.components(separatedBy: ["。", ".", "！", "!"]) .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        if sentences.count > 0 {
+            return true
+        }
+        
+        return false
     }
     
     /// 从 Dictionary API 获取词根信息
@@ -480,4 +789,9 @@ struct RootsUpdater {
         
         return nil
     }
+}
+
+// 传统的 main 函数
+func main() {
+    RootsUpdater.main()
 }

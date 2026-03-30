@@ -13,7 +13,8 @@ struct ContentView: View {
     @State private var showStats: Bool = false
     @State private var showSettings: Bool = false
     @State private var showStatisticsInPlace: Bool = false
-    @State private var isInReviewMode: Bool = false
+    @State private var isInSpellingMode: Bool = false
+    @State private var isInDictationMode: Bool = false
     @State private var showMeanings: Bool = false
     @State private var showWordRootsDetail: Bool = false // ✅ 新增：显示词根/助记详情页面
 
@@ -75,7 +76,8 @@ struct ContentView: View {
             // 同步页面状态
             syncPageState()
         }
-        .onChange(of: isInReviewMode) { _ in syncPageState() }
+        .onChange(of: isInSpellingMode) { _ in syncPageState() }
+        .onChange(of: isInDictationMode) { _ in syncPageState() }
         .onChange(of: showStatisticsInPlace) { _ in syncPageState() }
         .frame(minWidth: 1024, minHeight: 768)
     }
@@ -85,8 +87,10 @@ struct ContentView: View {
     private func syncPageState() {
         if showStatisticsInPlace {
             currentPage = .statistics
-        } else if isInReviewMode {
-            currentPage = .review
+        } else if isInDictationMode {
+            currentPage = .dictation
+        } else if isInSpellingMode {
+            currentPage = .spelling
         } else {
             currentPage = .learning
         }
@@ -97,15 +101,23 @@ struct ContentView: View {
             switch page {
             case .learning:
                 showStatisticsInPlace = false
-                isInReviewMode = false
+                isInSpellingMode = false
+                isInDictationMode = false
                 showWordRootsDetail = false
-            case .review:
+            case .spelling:
                 showStatisticsInPlace = false
-                isInReviewMode = true
+                isInSpellingMode = true
+                isInDictationMode = false
+                showWordRootsDetail = false
+            case .dictation:
+                showStatisticsInPlace = false
+                isInSpellingMode = false
+                isInDictationMode = true
                 showWordRootsDetail = false
             case .statistics:
                 showStatisticsInPlace = true
-                isInReviewMode = false
+                isInSpellingMode = false
+                isInDictationMode = false
                 showWordRootsDetail = false
             }
         }
@@ -119,21 +131,23 @@ struct ContentView: View {
             if sessionManager.sessionWords.isEmpty {
                 emptyStateView
             } else if showWordRootsDetail, let word = currentWord {
-                wordRootsDetailView(word: word)
-            } else {
-                switch page {
-                case .learning:
-                    if let word = currentWord {
-                        learningModeView(word: word)
-                    } else if sessionManager.isLoadingSession {
-                        loadingStateView
-                    }
-                case .review:
-                    reviewModeView
-                case .statistics:
-                    statisticsView
+            wordRootsDetailView(word: word)
+        } else {
+            switch page {
+            case .learning:
+                if let word = currentWord {
+                    learningModeView(word: word)
+                } else if sessionManager.isLoadingSession {
+                    loadingStateView
                 }
+            case .spelling:
+                spellingModeView
+            case .dictation:
+                dictationModeView
+            case .statistics:
+                statisticsView
             }
+        }
         }
     }
     
@@ -267,13 +281,34 @@ struct ContentView: View {
         .environmentObject(sessionManager)
     }
     
-    private var reviewModeView: some View {
+    private var spellingModeView: some View {
         ReviewSpellingView(
             learnedWords: sessionManager.sessionWords.filter { $0.isLearned },
             onShowStatistics: {
-                self.showStatisticsInPlace = true
-            }
+                // 拼写模式完成后跳转到听写模式
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    isInSpellingMode = false
+                    isInDictationMode = true
+                }
+            },
+            isDictationMode: false
         )
+        .environmentObject(sessionManager)
+    }
+    
+    private var dictationModeView: some View {
+        ReviewSpellingView(
+            learnedWords: sessionManager.sessionWords.filter { $0.isLearned },
+            onShowStatistics: {
+                // 听写模式完成后跳转到统计页面
+                self.showStatisticsInPlace = true
+            },
+            isDictationMode: true
+        )
+        .onAppear {
+            // 发送听写模式开始的通知，确保输入焦点
+            NotificationCenter.default.post(name: NSNotification.Name("DictationModeStarted"), object: nil)
+        }
         .environmentObject(sessionManager)
     }
     
@@ -452,13 +487,13 @@ struct ContentView: View {
                 )
                 .cornerRadius(10)
             
-            // ✅ 当到达最后一个单词时，显示"进入复习"按钮
+            // ✅ 当到达最后一个单词时，显示"进入拼写"按钮
             if isLastWord {
-                Button(action: enterReviewMode) {
+                Button(action: enterSpellingMode) {
                     HStack {
                         Image(systemName: "arrow.clockwise")
                             .font(.system(size: 14, weight: .semibold))
-                        Text("进入复习")
+                        Text("进入拼写")
                             .font(.system(size: 15, weight: .semibold))
                     }
                     .foregroundColor(.white)
@@ -514,10 +549,10 @@ struct ContentView: View {
         return sessionManager.sessionIndex == sessionManager.sessionWords.count - 1
     }
     
-    /// ✅ 进入复习模式
-    private func enterReviewMode() {
-        Logger.info("🎯 进入复习拼写模式")
-        isInReviewMode = true
+    /// ✅ 进入拼写模式
+    private func enterSpellingMode() {
+        Logger.info("🎯 进入拼写模式")
+        isInSpellingMode = true
         showMeanings = false
     }
     
@@ -542,8 +577,8 @@ struct ContentView: View {
             : nil
         
         if let word = currentWord, word.isLearned && sessionManager.sessionIndex == sessionManager.sessionWords.count - 1 {
-            Logger.info("🎯 所有单词已学习完毕，自动进入复习拼写模式")
-            isInReviewMode = true
+            Logger.info("🎯 所有单词已学习完毕，自动进入拼写模式")
+            isInSpellingMode = true
             return
         }
         
@@ -569,7 +604,8 @@ struct ContentView: View {
 
         // 重置所有状态标志
         withAnimation(.easeInOut(duration: 0.3)) {
-            isInReviewMode = false
+            isInSpellingMode = false
+            isInDictationMode = false
             showStatisticsInPlace = false
             showStats = false
             currentPage = .learning

@@ -126,54 +126,58 @@ struct WordRootsDetailView: View {
                 .frame(maxWidth: 800, alignment: .leading)
             }
             
-            // 词根内容卡片（使用自定义卡片样式）
-            VStack(alignment: .center, spacing: 0) {
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(Color(NSColor.controlBackgroundColor).opacity(0.8))
-                    .shadow(color: Color.black.opacity(0.1), radius: 8, x: 0, y: 4)
-                    .overlay {
-                        if let roots = word.roots, !roots.isEmpty {
-                            // 美化后的词根文本显示
-                            Text(formattedRootsText(roots))
-                                .font(.system(size: 18))
-                                .lineSpacing(8)
-                                .fixedSize(horizontal: false, vertical: true)
-                                .textSelection(.enabled) // ✅ 启用文本选择
-                                .contextMenu { // ✅ 添加右键菜单
-                                    Button("复制词根") {
-                                        NSPasteboard.general.clearContents()
-                                        NSPasteboard.general.setString(formattedRootsText(roots), forType: .string)
-                                    }
-                                    
-                                    Button("朗读词根") {
-                                        TTSManager.shared.speak(roots)
-                                    }
-                                    
-                                    Divider()
-                                    
-                                    Button("返回学习") {
-                                        onBack()
-                                    }
+            // 词根内容卡片（使用自定义卡片样式）- 添加 ScrollView 防止内容超出
+            ScrollView(showsIndicators: true) {
+                VStack(alignment: .center, spacing: 0) {
+                    if let roots = word.roots, !roots.isEmpty {
+                        // 美化后的词根文本显示
+                        Text(formattedRootsText(roots))
+                            .font(.system(size: 18))
+                            .lineSpacing(8)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .textSelection(.enabled) // ✅ 启用文本选择
+                            .contextMenu { // ✅ 添加右键菜单
+                                Button("复制词根") {
+                                    NSPasteboard.general.clearContents()
+                                    NSPasteboard.general.setString(formattedRootsText(roots), forType: .string)
                                 }
-                                .padding(32)
-                        } else {
-                            VStack(spacing: 20) {
-                                Image(systemName: "questionmark.circle")
-                                    .font(.system(size: 48))
-                                    .foregroundColor(Color(red: 1.0, green: 0.7, blue: 0.3))
                                 
-                                Text("暂无词根/助记信息")
-                                    .font(.system(size: 18))
-                                    .foregroundColor(Color(red: 0.6, green: 0.6, blue: 0.6))
-                                    .italic()
+                                Button("朗读词根") {
+                                    TTSManager.shared.speak(roots)
+                                }
+                                
+                                Divider()
+                                
+                                Button("返回学习") {
+                                    onBack()
+                                }
                             }
-                            .frame(maxWidth: .infinity, minHeight: 200)
-                            .padding(.vertical, 40)
+                            .padding(32)
+                            .frame(maxWidth: 800, alignment: .leading)
+                    } else {
+                        VStack(spacing: 20) {
+                            Image(systemName: "questionmark.circle")
+                                .font(.system(size: 48))
+                                .foregroundColor(Color(red: 1.0, green: 0.7, blue: 0.3))
+                            
+                            Text("暂无词根/助记信息")
+                                .font(.system(size: 18))
+                                .foregroundColor(Color(red: 0.6, green: 0.6, blue: 0.6))
+                                .italic()
                         }
+                        .frame(maxWidth: .infinity, minHeight: 200)
+                        .padding(.vertical, 40)
                     }
-                    .padding(.horizontal, 16)
-                    .frame(maxWidth: 800)
+                }
+                .background(
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(Color(NSColor.controlBackgroundColor).opacity(0.8))
+                        .shadow(color: Color.black.opacity(0.1), radius: 8, x: 0, y: 4)
+                )
+                .padding(.horizontal, 16)
+                .frame(maxWidth: 800)
             }
+            .frame(maxHeight: 400) // 限制最大高度，超出可滚动
         }
     }
     

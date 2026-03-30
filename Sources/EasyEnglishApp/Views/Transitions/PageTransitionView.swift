@@ -1,17 +1,19 @@
 import SwiftUI
 
-/// 页面类型枚举 - 用于标识三个主要功能页面
+/// 页面类型枚举 - 用于标识四个主要功能页面
 enum AppPage: Int, CaseIterable, Identifiable {
     case learning = 0
-    case review = 1
-    case statistics = 2
+    case spelling = 1
+    case dictation = 2
+    case statistics = 3
     
     var id: Int { rawValue }
     
     var title: String {
         switch self {
         case .learning: return "学习"
-        case .review: return "复习"
+        case .spelling: return "拼写"
+        case .dictation: return "听写"
         case .statistics: return "统计"
         }
     }
@@ -19,7 +21,8 @@ enum AppPage: Int, CaseIterable, Identifiable {
     var icon: String {
         switch self {
         case .learning: return "book.fill"
-        case .review: return "pencil.and.outline"
+        case .spelling: return "pencil.and.outline"
+        case .dictation: return "mic.fill"
         case .statistics: return "chart.bar.fill"
         }
     }
@@ -27,7 +30,8 @@ enum AppPage: Int, CaseIterable, Identifiable {
     var color: Color {
         switch self {
         case .learning: return .blue
-        case .review: return .orange
+        case .spelling: return .orange
+        case .dictation: return .purple
         case .statistics: return .green
         }
     }
@@ -270,13 +274,24 @@ struct PageContentWrapper<Content: View>: View {
                             }
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                         }
-                    case .review:
+                    case .spelling:
                         PageContentWrapper(page: page) {
                             VStack {
-                                Text("拼写复习")
+                                Text("拼写模式")
                                     .font(.largeTitle)
                                     .foregroundColor(.orange)
                                 Text("拼写测试练习")
+                                    .foregroundColor(.secondary)
+                            }
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        }
+                    case .dictation:
+                        PageContentWrapper(page: page) {
+                            VStack {
+                                Text("听写模式")
+                                    .font(.largeTitle)
+                                    .foregroundColor(.purple)
+                                Text("听写测试练习")
                                     .foregroundColor(.secondary)
                             }
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
