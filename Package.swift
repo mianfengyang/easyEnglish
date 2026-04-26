@@ -25,12 +25,14 @@ let package = Package(
             name: "import_database",
             dependencies: [.product(name: "SQLite", package: "SQLite.swift")],
             path: "scripts",
+            exclude: ["update_roots.swift"],
             sources: ["import_database.swift"]
         ),
         .executableTarget(
             name: "update_roots",
             dependencies: [.product(name: "SQLite", package: "SQLite.swift")],
             path: "scripts",
+            exclude: ["import_database.swift"],
             sources: ["update_roots.swift"]
         ),
         .testTarget(

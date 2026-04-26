@@ -12,8 +12,15 @@ APP_BUNDLE="$OUTPUT_DIR/${APP_NAME}.app"
 
 echo "🔨 开始构建 ${APP_NAME}.app ..."
 
-# 1. 清理旧的构建产物
+# 1. 清理旧的构建产物，但保留数据库
 echo "🧹 清理旧的构建产物..."
+# 先备份已有的数据库
+BACKUP_DB=""
+if [ -f "$APP_BUNDLE/Contents/Resources/wordlist.sqlite" ]; then
+    BACKUP_DB="$OUTPUT_DIR/wordlist_backup.sqlite"
+    cp "$APP_BUNDLE/Contents/Resources/wordlist.sqlite" "$BACKUP_DB"
+    echo "📦 已备份数据库到: $BACKUP_DB"
+fi
 rm -rf "$OUTPUT_DIR"
 mkdir -p "$OUTPUT_DIR"
 
@@ -58,10 +65,18 @@ cat > "$APP_BUNDLE/Contents/Info.plist" << EOF
 </plist>
 EOF
 
-# 6. 复制资源文件（如果存在）
+# 6. 复制资源文件（如果存在）- 避免覆盖已有数据库
 if [ -d "Sources/EasyEnglishApp/Resources" ]; then
     echo "📚 复制资源文件..."
-    cp -R "Sources/EasyEnglishApp/Resources/"* "$APP_BUNDLE/Contents/Resources/" 2>/dev/null || true
+    # 恢复备份的数据库（如果存在）
+    if [ -n "$BACKUP_DB" ] && [ -f "$BACKUP_DB" ]; then
+        cp "$BACKUP_DB" "$APP_BUNDLE/Contents/Resources/wordlist.sqlite"
+        echo "📦 已恢复数据库"
+        rm -f "$BACKUP_DB"
+    else
+        # 没有备份时正常拷贝（首次构建）
+        cp -R "Sources/EasyEnglishApp/Resources/"* "$APP_BUNDLE/Contents/Resources/" 2>/dev/null || true
+    fi
 fi
 
 # 7. 设置权限
