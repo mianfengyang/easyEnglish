@@ -13,7 +13,7 @@ final class WordRepository: WordRepositoryProtocol {
         let sql = "SELECT * FROM words WHERE is_learned IS NULL OR is_learned = 0 ORDER BY RANDOM() LIMIT \(count)"
         return try await fetchWords(sql: sql)
     }
-    
+
     func getRandomWords(count: Int) async throws -> [Word] {
         guard db.connection != nil else { throw DatabaseError.notInitialized }
         let sql = "SELECT * FROM words ORDER BY RANDOM() LIMIT \(count)"
@@ -31,8 +31,8 @@ final class WordRepository: WordRepositoryProtocol {
     
     // 混合加载：新单词 + 复习单词（SM-2算法调度）
     func getMixedWords(count: Int, newWordRatio: Double = 0.7) async throws -> [Word] {
-        guard let conn = db.connection else { throw DatabaseError.notInitialized }
-        
+        guard db.connection != nil else { throw DatabaseError.notInitialized }
+
         let newCount = Int(Double(count) * newWordRatio)
         let reviewCount = count - newCount
         
