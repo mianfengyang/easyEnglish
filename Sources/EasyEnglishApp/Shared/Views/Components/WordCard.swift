@@ -12,35 +12,13 @@ struct WordCard: View {
             wordHeaderSection
             meaningsSection
             examplesSection
-            if word.roots != nil && !word.roots!.isEmpty {
-                rootsButton
-            }
         }
         .padding(16)
         .background(Theme.secondaryBackground.opacity(0.4))
         .cornerRadius(20)
         .shadow(color: Color.black.opacity(0.05), radius: 12, x: 0, y: 4)
     }
-    
-    private var rootsButton: some View {
-        Button(action: {
-            NotificationCenter.default.post(name: NSNotification.Name("ShowWordRootsDetail"), object: word)
-        }) {
-            HStack(spacing: 4) {
-                Image(systemName: "book.fill")
-                    .font(.system(size: 11))
-                Text("词根/助记")
-                    .font(.system(size: 12, weight: .medium))
-            }
-            .foregroundColor(Theme.primary)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(Theme.primary.opacity(0.1))
-            .cornerRadius(6)
-        }
-        .buttonStyle(PlainButtonStyle())
-    }
-    
+
     private var wordHeaderSection: some View {
         VStack(alignment: .center, spacing: 8) {
             Text(word.text)
@@ -116,7 +94,7 @@ struct WordCard: View {
                     Text(formattedLines[index])
                         .font(.system(size: 14))
                         .foregroundColor(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .frame(minWidth: 40, maxWidth: 350, alignment: .leading)
                         .textSelection(.enabled)
                         .lineLimit(1)
                 }

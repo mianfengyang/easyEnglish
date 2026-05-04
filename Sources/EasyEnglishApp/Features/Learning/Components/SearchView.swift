@@ -54,6 +54,10 @@ struct SearchView: View {
         .padding(10)
         .background(Color(NSColor.controlBackgroundColor).opacity(0.6))
         .cornerRadius(10)
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(Theme.primary.opacity(0.3), lineWidth: 1)
+        )
         .onExitCommand(perform: clearSearch)
     }
     

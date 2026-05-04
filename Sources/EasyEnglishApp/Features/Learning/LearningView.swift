@@ -48,7 +48,15 @@ struct LearningView: View {
     
     private func controlButtonsView(word: Word) -> some View {
         HStack(spacing: 12) {
+            AccentButton("词根", icon: "book.fill") {
+                NotificationCenter.default.post(
+                    name: NSNotification.Name("ShowWordRootsDetail"),
+                    object: word
+                )
+            }
+
             AccentButton("认识", icon: "checkmark.circle.fill") {
+                viewModel.showMeanings = false
                 viewModel.review(word: word, quality: 4)
                 viewModel.next()
             }
