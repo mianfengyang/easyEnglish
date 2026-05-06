@@ -25,8 +25,7 @@ struct SpellingView: View {
     }
     
     var body: some View {
-        VStack(spacing: 24) {
-            Spacer()
+        VStack {
             if viewModel.learnedWords.isEmpty {
                 emptyStateView
             } else if viewModel.currentWord != nil {
@@ -35,11 +34,10 @@ struct SpellingView: View {
                 Text("加载中...")
                     .foregroundColor(.secondary)
             }
-            Spacer()
         }
         .padding(.horizontal, 80)
-        .padding(.vertical, 40)
-        .frame(minWidth: 600, maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.top, 200)
+        .frame(minWidth: 600, maxWidth: .infinity)
         .background(Theme.background)
         .onAppear {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {

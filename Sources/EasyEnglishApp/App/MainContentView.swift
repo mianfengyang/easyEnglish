@@ -73,7 +73,7 @@ struct MainContentView: View {
                 }
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(maxWidth: .infinity)
     }
     
     private func handlePageChange(to page: AppPage) {
