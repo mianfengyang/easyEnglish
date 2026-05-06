@@ -25,7 +25,8 @@ struct SpellingView: View {
     }
     
     var body: some View {
-        VStack(spacing: 30) {
+        VStack(spacing: 24) {
+            Spacer()
             if viewModel.learnedWords.isEmpty {
                 emptyStateView
             } else if viewModel.currentWord != nil {
@@ -38,7 +39,7 @@ struct SpellingView: View {
         }
         .padding(.horizontal, 80)
         .padding(.vertical, 40)
-        .frame(minWidth: 600, maxWidth: .infinity, minHeight: 500, maxHeight: .infinity)
+        .frame(minWidth: 600, maxWidth: .infinity, maxHeight: .infinity)
         .background(Theme.background)
         .onAppear {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
@@ -62,32 +63,29 @@ struct SpellingView: View {
     }
     
     private var mainContentSection: some View {
-        VStack(spacing: 32) {
-            meaningSection
+        VStack(spacing: 20) {
             pronunciationSection
-            
+            chineseMeaningsSection
+
             if isDictationMode {
                 dictationInputSection
             } else {
                 spellingSection
             }
-            
-            navigationButtonsSection
         }
     }
-    
-    private var meaningSection: some View {
-        VStack(spacing: 8) {
-            Text("释义")
-                .font(.system(size: 14, weight: .medium))
-                .foregroundColor(.secondary)
-            Text(viewModel.currentWord?.meanings ?? "")
-                .font(.system(size: 18, weight: .semibold))
-                .multilineTextAlignment(.center)
-                .foregroundColor(.primary)
-                .padding()
-                .background(RoundedRectangle(cornerRadius: 12).fill(Theme.secondaryBackground.opacity(0.6)))
+
+    private var chineseMeaningsSection: some View {
+        Group {
+            if let meanings = viewModel.currentWord?.meanings, !meanings.isEmpty {
+                Text(meanings)
+            }
         }
+        .font(.system(size: 16, weight: .semibold))
+        .multilineTextAlignment(.center)
+        .foregroundColor(.primary)
+        .padding()
+        .background(RoundedRectangle(cornerRadius: 12).fill(Theme.secondaryBackground.opacity(0.6)))
     }
     
     private var pronunciationSection: some View {
@@ -121,13 +119,17 @@ struct SpellingView: View {
     
     private var dictationInputSection: some View {
         VStack(spacing: 20) {
+            dictationAnswerDisplayView
+
             Text("直接在键盘上按字母")
                 .font(.system(size: 13))
                 .foregroundColor(.secondary.opacity(0.7))
-            
-            dictationAnswerDisplayView
-            
-            hiddenKeyInputView
+
+            navigationButtonsView
+
+            HiddenKeyboardHandlerView { key in
+                handleDictationKeyPress(key)
+            }
         }
     }
     
@@ -151,13 +153,7 @@ struct SpellingView: View {
         case .pending: return .clear
         }
     }
-    
-    private var hiddenKeyInputView: some View {
-        HiddenKeyboardHandlerView { key in
-            handleDictationKeyPress(key)
-        }
-    }
-    
+
     private func handleDictationKeyPress(_ key: String) {
         guard isDictationMode else { return }
         guard !isComplete else { return }
@@ -167,7 +163,7 @@ struct SpellingView: View {
         
         if key.lowercased() == expectedChar.lowercased() {
             letterStates.append(.correct)
-            SoundManager.shared.playKeyClick()
+            SoundManager.shared.playCorrect()
             checkDictationComplete()
         } else {
             letterStates.append(.incorrect)
@@ -197,12 +193,16 @@ struct SpellingView: View {
     private var spellingSection: some View {
         VStack(spacing: 20) {
             answerDisplayView
-            
+
             Text("直接在键盘上按字母")
                 .font(.system(size: 13))
                 .foregroundColor(.secondary.opacity(0.7))
-            
-            keyInputView
+
+            navigationButtonsView
+
+            HiddenKeyboardHandlerView { key in
+                handleKeyPress(key)
+            }
         }
     }
     
@@ -227,12 +227,6 @@ struct SpellingView: View {
         }
     }
     
-    private var keyInputView: some View {
-        HiddenKeyboardHandlerView { key in
-            handleKeyPress(key)
-        }
-    }
-    
     private func handleKeyPress(_ key: String) {
         guard !isDictationMode else { return }
         guard !isComplete else { return }
@@ -242,7 +236,7 @@ struct SpellingView: View {
         
         if key.lowercased() == expectedChar.lowercased() {
             letterStates.append(.correct)
-            SoundManager.shared.playKeyClick()
+            SoundManager.shared.playCorrect()
             checkIfComplete()
         } else {
             letterStates.append(.incorrect)
@@ -294,7 +288,7 @@ struct SpellingView: View {
         }
     }
     
-    private var navigationButtonsSection: some View {
+    private var navigationButtonsView: some View {
         let currentIndex = viewModel.currentIndex
         let totalCount = viewModel.learnedWords.count
         let canGoPrevious = currentIndex > 0
