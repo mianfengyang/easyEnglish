@@ -89,24 +89,13 @@ struct WordCard: View {
     private var examplesSection: some View {
         if let examples = word.examples {
             VStack(alignment: .leading, spacing: 8) {
-                let formattedLines = formatExamplesFixed(examples, lines: 3)
+                let exampleLines = splitExamples(examples)
                 ForEach(0..<3, id: \.self) { index in
-                    Text(formattedLines[index])
+                    Text(index < exampleLines.count ? exampleLines[index] : "")
                         .font(.system(size: 14))
                         .foregroundColor(.secondary)
-                        .frame(minWidth: 40, maxWidth: 350, alignment: .leading)
-                        .textSelection(.enabled)
-                        .lineLimit(1)
                 }
-                .contextMenu {
-                    Button("复制例句") {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(formatExamples(examples), forType: .string)
-                    }
-                    Button("朗读例句") {
-                        TTSManager.shared.speak(examples)
-                    }
-                }
+                .textSelection(.enabled)
             }
             .padding(16)
             .background(Theme.secondaryBackground.opacity(0.3))
@@ -127,13 +116,11 @@ struct WordCard: View {
             .popover(isPresented: $showChinesePopover, arrowEdge: .top) {
                 if let chineseExamples = word.chineseExamples {
                     VStack(alignment: .leading, spacing: 8) {
-                        let chineseLines = formatExamplesFixed(chineseExamples, lines: 3)
+                        let exampleLines = splitExamples(chineseExamples)
                         ForEach(0..<3, id: \.self) { index in
-                            Text(chineseLines[index])
+                            Text(index < exampleLines.count ? exampleLines[index] : "")
                                 .font(.system(size: 14))
                                 .foregroundColor(.secondary)
-                                .lineLimit(nil)
-                                .fixedSize(horizontal: false, vertical: true)
                         }
                     }
                     .padding()
@@ -142,30 +129,9 @@ struct WordCard: View {
             }
         }
     }
-    
-    // 固定返回3行，不足用空行补齐
-    private func formatExamplesFixed(_ text: String, lines: Int) -> [String] {
-        let exampleLines = formatExamples(text).split(separator: "\n", omittingEmptySubsequences: false).map { String($0) }
-        var result: [String] = []
-        for i in 0..<lines {
-            if i < exampleLines.count {
-                result.append(exampleLines[i])
-            } else {
-                result.append("")
-            }
-        }
-        return result
-    }
-    
-    private func formatExamples(_ text: String) -> String {
-        let pattern = "([.!?。？！])\\s*"
-        let replaced = (try? NSRegularExpression(pattern: pattern))?.stringByReplacingMatches(
-            in: text,
-            options: [],
-            range: NSRange(text.startIndex..., in: text),
-            withTemplate: "$1\n"
-        ) ?? text
-        let lines = replaced.split(separator: "\n", omittingEmptySubsequences: true).map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
-        return lines.joined(separator: "\n")
+
+    private func splitExamples(_ text: String) -> [String] {
+        let components = text.components(separatedBy: "(")
+        return components.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
     }
 }
