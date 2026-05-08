@@ -1,10 +1,17 @@
 import Foundation
 
+struct MixedWordsResult {
+    let words: [Word]
+    let newCount: Int
+    let reviewCount: Int
+}
+
 protocol WordRepositoryProtocol {
+    func getMixedWords(count: Int, newWordRatio: Double) async throws -> MixedWordsResult
+    func getMixedWordsByDay(day: Date, count: Int, newWordRatio: Double) async throws -> MixedWordsResult
     func getNewWords(count: Int) async throws -> [Word]
     func getRandomWords(count: Int) async throws -> [Word]
     func getReviewWords(count: Int) async throws -> [Word]
-    func getMixedWords(count: Int, newWordRatio: Double) async throws -> [Word]
     func getWord(byId id: UUID) async throws -> Word?
     func getWord(byText text: String) async throws -> Word?
     func searchWords(query: String) async throws -> [Word]

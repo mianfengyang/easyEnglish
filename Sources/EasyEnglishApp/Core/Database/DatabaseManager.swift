@@ -114,6 +114,13 @@ final class DatabaseManager: @unchecked Sendable {
             // 可能表已存在或其它错误，忽略避免阻塞启动
             Logger.warning("Daily stats table init skipped: \(error)")
         }
+
+        // 初始化学习会话统计表；记录 70/30 调度拆分（允许同一天多条记录，累加统计）
+        do {
+            try conn.run("CREATE TABLE IF NOT EXISTS learning_session_stats (id INTEGER PRIMARY KEY AUTOINCREMENT, session_date DATE, mixed_count INTEGER, new_count INTEGER, review_count INTEGER)")
+        } catch {
+            Logger.warning("Learning session stats table init skipped: \(error)")
+        }
     }
     
     // MARK: - Table Definitions

@@ -21,35 +21,94 @@ final class WordRepository: WordRepositoryProtocol {
     }
     
     func getReviewWords(count: Int) async throws -> [Word] {
-        guard let conn = db.connection else { throw DatabaseError.notInitialized }
-        let query = db.words
-            .filter(db.isLearned == true && db.nextReviewAt <= Date())
-            .order(db.nextReviewAt.asc)
-            .limit(count)
-        return try conn.prepare(query).map { mapRowToWord($0) }
+        guard db.connection != nil else { throw DatabaseError.notInitialized }
+        let sql = "SELECT * FROM words WHERE is_learned = 1 AND next_review_at <= datetime('now') ORDER BY next_review_at ASC LIMIT \(count)"
+        return try await fetchWords(sql: sql)
     }
     
     // 混合加载：新单词 + 复习单词（SM-2算法调度）
-    func getMixedWords(count: Int, newWordRatio: Double = 0.7) async throws -> [Word] {
+    func getMixedWords(count: Int, newWordRatio: Double = 0.7) async throws -> MixedWordsResult {
+        guard db.connection != nil else { throw DatabaseError.notInitialized }
+
+        let newQuota = Int(Double(count) * newWordRatio)
+        let reviewQuota = count - newQuota
+
+        // 获取新单词
+        var words: [Word] = []
+        var actualNewCount = 0
+        let newSql = "SELECT * FROM words WHERE is_learned IS NULL OR is_learned = 0 ORDER BY RANDOM() LIMIT \(newQuota)"
+        let newWords = try await fetchWords(sql: newSql)
+        actualNewCount = newWords.count
+        words.append(contentsOf: newWords)
+
+        // 获取复习单词
+        var actualReviewCount = 0
+        if reviewQuota > 0 {
+            let reviewSql = "SELECT * FROM words WHERE is_learned = 1 AND next_review_at <= datetime('now') ORDER BY next_review_at ASC LIMIT \(reviewQuota)"
+            let reviewWords = try await fetchWords(sql: reviewSql)
+            actualReviewCount = reviewWords.count
+            words.append(contentsOf: reviewWords)
+        }
+
+        // 如果混合加载没拿到单词，回退到随机词
+        if words.isEmpty {
+            words = try await getRandomWords(count: count)
+        }
+
+        // 记录学习会话拆分（实际加载的新词/复习词数量）
+        let startOfDay = Calendar.current.startOfDay(for: Date())
+        saveSessionStats(date: startOfDay, mixedCount: words.count, newCount: actualNewCount, reviewCount: actualReviewCount)
+
+        // 打乱顺序
+        return MixedWordsResult(words: words.shuffled(), newCount: actualNewCount, reviewCount: actualReviewCount)
+    }
+
+    func getMixedWordsByDay(day: Date, count: Int, newWordRatio: Double = 0.7) async throws -> MixedWordsResult {
         guard db.connection != nil else { throw DatabaseError.notInitialized }
 
         let newCount = Int(Double(count) * newWordRatio)
         let reviewCount = count - newCount
-        
-        // 获取新单词
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd"
+        let dayStart = Calendar.current.startOfDay(for: day)
+        let dayStartStr = dateFormatter.string(from: dayStart)
+        let dayEndStr = dateFormatter.string(from: dayStart + 86400)
+
         var words: [Word] = []
         let newSql = "SELECT * FROM words WHERE is_learned IS NULL OR is_learned = 0 ORDER BY RANDOM() LIMIT \(newCount)"
         words.append(contentsOf: try await fetchWords(sql: newSql))
-        
-        // 如果需要复习单词
+
+        var actualReviewCount = 0
         if reviewCount > 0 {
-            let reviewSql = "SELECT * FROM words WHERE is_learned = 1 AND next_review_at <= datetime('now') ORDER BY next_review_at ASC LIMIT \(reviewCount)"
+            let reviewSql = "SELECT * FROM words WHERE is_learned = 1 AND next_review_at <= '\(dayEndStr)' AND next_review_at > '\(dayStartStr)' ORDER BY next_review_at ASC LIMIT \(reviewCount)"
             let reviewWords = try await fetchWords(sql: reviewSql)
+            actualReviewCount = reviewWords.count
             words.append(contentsOf: reviewWords)
         }
+
+        return MixedWordsResult(words: words.shuffled(), newCount: newCount, reviewCount: actualReviewCount)
+    }
+
+    private func saveSessionStats(date: Date, mixedCount: Int, newCount: Int, reviewCount: Int) {
+        guard let conn = db.connection else { return }
         
-        // 打乱顺序
-        return words.shuffled()
+        // 表可能不存在（旧数据库），先尝试建表
+        _ = try? conn.run("CREATE TABLE IF NOT EXISTS learning_session_stats (" +
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
+            "session_date DATE, mixed_count INTEGER, " +
+            "new_count INTEGER, review_count INTEGER)")
+        
+        // 用 datetime('now') 格式存入日期，与 SQLite 内置日期格式保持一致
+        // 这样 save 和查询时都使用相同格式，避免 sqlite.swift 的 Date 序列化问题
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd"
+        let dateStr = dateFormatter.string(from: date)
+        do {
+            try conn.run("INSERT INTO learning_session_stats (session_date, mixed_count, new_count, review_count) " +
+                "VALUES ('\(dateStr)', \(mixedCount), \(newCount), \(reviewCount))")
+        } catch {
+            Logger.warning("保存学习会话统计失败: \(error)")
+        }
     }
     
     func getWord(byId id: UUID) async throws -> Word? {
@@ -141,65 +200,34 @@ final class WordRepository: WordRepositoryProtocol {
     func getDailyStats() async throws -> DailyStats {
         guard let conn = db.connection else { throw DatabaseError.notInitialized }
 
-        // 使用 ISO8601 格式的日期字符串进行查询
         let startOfDay = Calendar.current.startOfDay(for: Date())
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "yyyy-MM-dd"
         let startDateStr = dateFormatter.string(from: startOfDay)
         let endDateStr = dateFormatter.string(from: startOfDay.addingTimeInterval(86400))
-        
-        // 1) 先尝试从 daily_stats 缓存表读取（若存在）
+
+        // 1) 新学单词：当天 learned_at 落在今天范围的单词数
+        let newSql = "SELECT COUNT(*) FROM words WHERE is_learned = 1 AND learned_at >= '\(startDateStr)' AND learned_at < '\(endDateStr)'"
+        let newWords = try conn.scalar(newSql) as? Int64 ?? 0
+
+        // 2) 复习单词：从学习会话统计表累加所有会话的 review_count
+        // 统一用 strftime 格式化日期进行比较，避免 sqlite.swift Date 序列化问题
+        var reviews: Int64 = 0
         do {
-            let dailyExists = try conn.scalar("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='daily_stats'") as? Int64 ?? 0
-            if dailyExists > 0 {
-                let dailyStatsTable = Table("daily_stats")
-                let dsDate = Expression<Date>("date")
-                let dsNew = Expression<Int64>("new_words")
-                let dsRev = Expression<Int64>("reviews")
-                let dsRate = Expression<Double>("correct_rate")
-                if let row = try conn.pluck(dailyStatsTable.select(dsDate, dsNew, dsRev, dsRate).order(dsDate.desc).limit(1)) {
-                    let date = row[dsDate]
-                    let newW: Int64 = row[dsNew]
-                    let rev: Int64 = row[dsRev]
-                    let rate: Double = row[dsRate]
-                    return DailyStats(date: date, newWords: newW, reviews: rev, correctRate: rate)
-                }
-            }
+            let sql = "SELECT SUM(review_count) FROM learning_session_stats " +
+                "WHERE strftime('%Y-%m-%d', session_date) = strftime('%Y-%m-%d', 'now')"
+            reviews = (try conn.scalar(sql) as? Int64) ?? 0
         } catch {
-            // 忽略缓存读取错误，回退计算
+            Logger.warning("查询会话统计失败: \(error)")
         }
 
-        // 2) 回退到基于 Words 表的统计计算
-        // 新学单词：当天学习的单词（is_learned=1 且 learned_at=今天）
-        let newSql = "SELECT COUNT(*) FROM words WHERE is_learned = 1 AND learned_at >= '\(startDateStr)' AND learned_at < '\(endDateStr)'"
-        var newWords = try conn.scalar(newSql) as? Int64 ?? 0
-        
-        // 复习单词：当天复习的单词（之前已学习，今天又复习了）
-        // 即 learned_at < 今天 且 last_reviewed_at = 今天
-        let reviewSql = "SELECT COUNT(*) FROM words WHERE is_learned = 1 AND learned_at < '\(startDateStr)' AND last_reviewed_at >= '\(startDateStr)' AND last_reviewed_at < '\(endDateStr)'"
-        var reviews = try conn.scalar(reviewSql) as? Int64 ?? 0
-        
-        // 如果当天没有学习，显示历史累计（新学=已学习总数，复习=0）
-        let totalLearned = try conn.scalar("SELECT COUNT(*) FROM words WHERE is_learned = 1") as? Int64 ?? 0
-        if newWords == 0 { newWords = totalLearned }
-        if reviews == 0 { reviews = 0 }
-        
-        // 正确率：当天复习的单词的正确率
+        // 3) 正确率：当天被复习过的单词的正确率（基于复习记录）
         let rateSql = """
             SELECT AVG(CASE WHEN review_count > 0 THEN CAST(correct_count AS REAL) / review_count ELSE NULL END)
             FROM words WHERE is_learned = 1 AND review_count > 0 AND last_reviewed_at >= '\(startDateStr)' AND last_reviewed_at < '\(endDateStr)'
         """
-        var correctRate = (try conn.scalar(rateSql) as? Double ?? 0.0) * 100.0
-        
-        // 如果当天没有复习数据，显示全局正确率
-        if correctRate == 0 {
-            let globalRateSql = """
-                SELECT AVG(CASE WHEN review_count > 0 THEN CAST(correct_count AS REAL) / review_count ELSE NULL END)
-                FROM words WHERE is_learned = 1 AND review_count > 0
-            """
-            correctRate = (try conn.scalar(globalRateSql) as? Double ?? 0.0) * 100.0
-        }
-        
+        let correctRate = (try conn.scalar(rateSql) as? Double ?? 0.0) * 100.0
+
         return DailyStats(date: Date(), newWords: newWords, reviews: reviews, correctRate: min(100.0, max(0.0, correctRate)))
     }
     
@@ -361,12 +389,7 @@ final class WordRepository: WordRepositoryProtocol {
     }
     
     private func calculateNextReviewDate(interval: Int64, reps: Int64) -> Date {
-        let secondsPerDay: TimeInterval = 86400
-        if reps <= 1 {
-            let intervalInSeconds: TimeInterval = (reps == 0) ? 3600 : 86400
-            return Date().addingTimeInterval(intervalInSeconds)
-        } else {
-            return Date().addingTimeInterval(Double(interval) * secondsPerDay)
-        }
+        // 新学完的词立即进入复习池（当天即可复习）
+        return Date()
     }
 }
